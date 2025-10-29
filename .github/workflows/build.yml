@@ -1,4 +1,4 @@
-name: ImmortalWrt 24.10 S922X 构建（加速版）
+name: ImmortalWrt 24.10 S922X 构建（路径修复版）
 
 on:
   workflow_dispatch:
@@ -44,12 +44,13 @@ jobs:
             fi
             sleep 5
           done || { echo "克隆失败"; exit 1; }
-          cd openwrt
+          cd $GITHUB_WORKSPACE/openwrt
           ln -sf ../config/.config .config
+          ls -la
 
       - name: 下载 u-boot
         run: |
-          cd openwrt
+          cd $GITHUB_WORKSPACE/openwrt
           mkdir -p files/u-boot
           wget -q https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/target/linux/meson/files/u-boot-s922x.bin \
             -O files/u-boot/u-boot-s922x.bin
@@ -57,32 +58,31 @@ jobs:
 
       - name: 更新 & 安装 feeds
         run: |
-          cd openwrt
+          cd $GITHUB_WORKSPACE/openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 多级缓存（dl, ccache, toolchain）
+      - name: 缓存 dl & ccache
         uses: actions/cache@v4
         with:
           path: |
             openwrt/dl
-            openwrt/staging_dir/toolchain-*
             ~/.ccache
           key: cache-${{ runner.os }}-${{ hashFiles('openwrt/feeds.conf.default') }}
           restore-keys: cache-${{ runner.os }}-
 
       - name: 应用配置
         run: |
-          cd openwrt
+          cd $GITHUB_WORKSPACE/openwrt
           make defconfig
 
-      - name: 开始编译（-j4 加速）
+      - name: 开始编译（单核 + 日志）
         run: |
-          cd openwrt
+          cd $GITHUB_WORKSPACE/openwrt
           export CCACHE_DIR=~/.ccache
-          make -j4 V=s 2>&1 | tee build.log || { tail -50 build.log; exit 1; }
+          make -j1 V=s 2>&1 | tee build.log || { tail -50 build.log; exit 1; }
 
-      - name: 上传固件（路径修复）
+      - name: 上传固件
         if: success()
         uses: actions/upload-artifact@v4
         with:
