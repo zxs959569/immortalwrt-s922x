@@ -1,0 +1,83 @@
+name: ImmortalWrt 24.10 Amlogic S922X 构建
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装依赖
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib gettext git libncurses5-dev libssl-dev \
+            python3-distutils python3-setuptools rsync subversion \
+            swig unzip zlib1g-dev ccache quilt time
+
+      - name: 释放空间
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h
+
+      - name: 克隆 ImmortalWrt
+        run: |
+          git clone --depth 1 -b openwrt-24.10 \
+            https://github.com/immortalwrt/immortalwrt.git openwrt
+          cd openwrt
+          ln -sf ../config/.config .config
+          mkdir -p files
+          cp -r ../files/u-boot files/
+
+      - name: 更新 & 安装 feeds
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 下载 dl 缓存（加速）
+        uses: actions/cache@v3
+        with:
+          path: openwrt/dl
+          key: dl-${{ runner.os }}-${{ hashFiles('openwrt/feeds.conf.default') }}
+          restore-keys: |
+            dl-${{ runner.os }}-
+
+      - name: 应用配置
+        run: |
+          cd openwrt
+          make defconfig
+
+      - name: 开始编译（单核避免 OOM）
+        run: |
+          cd openwrt
+          make -j1 V=s 2>&1 | tee build.log
+
+      - name: 上传固件
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ImmortalWrt-S922X-Firmware
+          path: |
+            openwrt/bin/targets/meson/g12b/*.bin
+            openwrt/bin/targets/meson/g12b/*.img
+            openwrt/bin/targets/meson/g12b/*.tar.gz
+          retention-days: 7
+
+      - name: 上传日志（失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: openwrt/build.log
