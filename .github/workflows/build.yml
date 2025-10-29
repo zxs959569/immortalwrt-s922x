@@ -1,4 +1,4 @@
-name: ImmortalWrt 24.10 Amlogic S922X 构建
+name: ImmortalWrt 24.10 S922X 构建
 
 on:
   workflow_dispatch:
@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  packages: read
 
 jobs:
   build:
@@ -37,8 +36,14 @@ jobs:
             https://github.com/immortalwrt/immortalwrt.git openwrt
           cd openwrt
           ln -sf ../config/.config .config
-          mkdir -p files
-          cp -r ../files/u-boot files/
+
+      - name: 下载 u-boot（自动修复 404）
+        run: |
+          cd openwrt
+          mkdir -p files/u-boot
+          wget -q https://github.com/immortalwrt/immortalwrt/raw/master/target/linux/meson/image/u-boot-s922x.bin \
+            -O files/u-boot/u-boot-s922x.bin
+          echo "u-boot 下载完成"
 
       - name: 更新 & 安装 feeds
         run: |
@@ -46,20 +51,19 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 下载 dl 缓存（加速）
+      - name: 缓存 dl 目录（加速）
         uses: actions/cache@v3
         with:
           path: openwrt/dl
           key: dl-${{ runner.os }}-${{ hashFiles('openwrt/feeds.conf.default') }}
-          restore-keys: |
-            dl-${{ runner.os }}-
+          restore-keys: dl-${{ runner.os }}-
 
       - name: 应用配置
         run: |
           cd openwrt
           make defconfig
 
-      - name: 开始编译（单核避免 OOM）
+      - name: 开始编译（单核防 OOM）
         run: |
           cd openwrt
           make -j1 V=s 2>&1 | tee build.log
@@ -79,5 +83,5 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
+          name: build-failed-log
           path: openwrt/build.log
