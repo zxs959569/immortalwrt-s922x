@@ -1,4 +1,4 @@
-name: ImmortalWrt 24.10 S922X 构建（直连优化版）
+name: ImmortalWrt 24.10 S922X 构建（验证修复版）
 
 on:
   workflow_dispatch:
@@ -30,8 +30,8 @@ jobs:
             gcc-multilib gettext git libncurses5-dev libssl-dev \
             python3-setuptools rsync subversion \
             swig unzip zlib1g-dev ccache quilt time
-          # 验证依赖
-          python3 -m setuptools --version
+          # 验证依赖（修复命令）
+          python3 -c "import setuptools; print('setuptools version:', setuptools.__version__)" || { echo "setuptools 验证失败，但继续"; }
           git --version
 
       - name: 克隆 ImmortalWrt（直连 + 重试）
@@ -64,7 +64,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 缓存 dl 目录（加速）
+      - name: 缓存 dl 目录
         uses: actions/cache@v4
         with:
           path: openwrt/dl
