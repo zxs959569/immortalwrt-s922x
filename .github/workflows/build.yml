@@ -1,4 +1,4 @@
-name: ImmortalWrt 24.10 S922X 构建（验证修复版）
+name: ImmortalWrt 24.10 S922X 构建（u-boot URL 修复版）
 
 on:
   workflow_dispatch:
@@ -30,7 +30,7 @@ jobs:
             gcc-multilib gettext git libncurses5-dev libssl-dev \
             python3-setuptools rsync subversion \
             swig unzip zlib1g-dev ccache quilt time
-          # 验证依赖（修复命令）
+          # 验证依赖
           python3 -c "import setuptools; print('setuptools version:', setuptools.__version__)" || { echo "setuptools 验证失败，但继续"; }
           git --version
 
@@ -50,13 +50,26 @@ jobs:
           ln -sf ../config/.config .config
           ls -la
 
-      - name: 下载 u-boot（官方源）
+      - name: 下载 u-boot（修复 URL + 重试）
         run: |
           cd openwrt
           mkdir -p files/u-boot
-          wget -q https://github.com/immortalwrt/immortalwrt/raw/openwrt-24.10/target/linux/meson/image/u-boot-s922x.bin \
-            -O files/u-boot/u-boot-s922x.bin || { echo "u-boot 下载失败"; exit 1; }
-          ls -lh files/u-boot/
+          URL1="https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/target/linux/meson/files/u-boot-s922x.bin"
+          URL2="https://github.com/ophub/amlogic-s9xxx-openwrt/releases/download/u-boot/u-boot-s922x.bin"
+          
+          for i in {1..3}; do
+            echo "第 $i 次尝试下载 u-boot..."
+            if wget -q $URL1 -O files/u-boot/u-boot-s922x.bin; then
+              echo "u-boot 下载成功！"
+              ls -lh files/u-boot/
+              break
+            elif wget -q $URL2 -O files/u-boot/u-boot-s922x.bin; then
+              echo "备用源下载成功！"
+              ls -lh files/u-boot/
+              break
+            fi
+            sleep 5
+          done || { echo "u-boot 下载失败"; exit 1; }
 
       - name: 更新 & 安装 feeds（直连）
         run: |
