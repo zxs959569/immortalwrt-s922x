@@ -1,4 +1,4 @@
-name: ImmortalWrt 24.10 S922X 构建
+name: ImmortalWrt 24.10 S922X 构建（YAML 语法修复版）
 
 on:
   workflow_dispatch:
@@ -40,7 +40,7 @@ jobs:
       - name: 配置 S922X 目标
         run: |
           cd openwrt
-          cat > .config <<'CONFIG_END'
+          cat > .config << |CONFIG_END|
 CONFIG_TARGET_meson=y
 CONFIG_TARGET_meson_g12b=y
 CONFIG_TARGET_meson_g12b_DEVICE_s922x=y
@@ -79,14 +79,15 @@ CONFIG_PACKAGE_f2fs-tools=y
 CONFIG_PACKAGE_luci-ssl=y
 CONFIG_LUCI_SSL="mbedtls"
 CONFIG_PACKAGE_libustream-mbedtls=y
+CONFIG_PACKAGE_libustream-openssl=n
 CONFIG_PACKAGE_chrony=y
 CONFIG_PACKAGE_luci-app-ntpc=y
 CONFIG_PACKAGE_luci-i18n-ntpc-zh-cn=y
 CONFIG_PACKAGE_luci-app-ttyd=y
 CONFIG_PACKAGE_luci-i18n-ttyd-zh-cn=y
-CONFIG_END
-          echo "S922X 配置已写入 .config"
-          grep "s922x" .config
+|CONFIG_END
+          echo "=== S922X 配置加载 ==="
+          grep -E "TARGET.*meson|DEVICE.*s922x" .config
           make defconfig
 
       - name: 下载 u-boot
@@ -95,7 +96,7 @@ CONFIG_END
           mkdir -p files/u-boot
           wget -q https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/target/linux/meson/files/u-boot-s922x.bin \
             -O files/u-boot/u-boot-s922x.bin || echo "u-boot 下载失败，但继续"
-          ls -lh files/u-boot/ || true
+          ls -lh files/u-boot/ || echo "u-boot 目录为空"
 
       - name: 更新 feeds
         run: |
@@ -112,7 +113,7 @@ CONFIG_END
           key: cache-${{ runner.os }}
           restore-keys: cache-${{ runner.os }}
 
-      - name: 编译
+      - name: 开始编译
         run: |
           cd openwrt
           export CCACHE_DIR=~/.ccache
