@@ -1,4 +1,4 @@
-name: ImmortalWrt 24.10 S922X 构建（S922X 目标修复版）
+name: ImmortalWrt 24.10 S922X 构建（cd 路径修复版）
 
 on:
   workflow_dispatch:
@@ -32,26 +32,52 @@ jobs:
             swig unzip zlib1g-dev ccache quilt time
           python3 -c "import setuptools; print('setuptools version:', setuptools.__version__)"
 
-      - name: 克隆 ImmortalWrt
+      - name: 克隆 ImmortalWrt（直连 + 重试 + 验证）
         run: |
           cd $GITHUB_WORKSPACE
-          git clone --depth 1 -b openwrt-24.10 \
-            https://github.com/immortalwrt/immortalwrt.git openwrt
-          cd openwrt
+          for i in {1..3}; do
+            echo "第 $i 次尝试克隆..."
+            if git clone --depth 1 -b openwrt-24.10 \
+              https://github.com/immortalwrt/immortalwrt.git openwrt; then
+              echo "克隆成功！"
+              ls -la openwrt
+              git -C openwrt status  # 验证完整性
+              break
+            fi
+            sleep 10
+          done || { echo "克隆失败"; ls -la $GITHUB_WORKSPACE; exit 1; }
+
+      - name: 进入目录验证
+        run: |
+          cd $GITHUB_WORKSPACE/openwrt || { echo "cd 失败！目录不存在"; ls -la $GITHUB_WORKSPACE; exit 1; }
           ln -sf ../config/.config .config
           ls -la
+          echo "路径验证成功！"
 
-      - name: 下载 u-boot
+      - name: 下载 u-boot（重试 + 备用）
         run: |
-          cd openwrt
+          cd $GITHUB_WORKSPACE/openwrt
           mkdir -p files/u-boot
-          wget -q https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/target/linux/meson/files/u-boot-s922x.bin \
-            -O files/u-boot/u-boot-s922x.bin
-          ls -lh files/u-boot/
+          URL1="https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/target/linux/meson/files/u-boot-s922x.bin"
+          URL2="https://github.com/ophub/amlogic-s9xxx-openwrt/releases/download/u-boot/u-boot-s922x.bin"
+          
+          for i in {1..3}; do
+            echo "第 $i 次尝试下载 u-boot..."
+            if wget -q $URL1 -O files/u-boot/u-boot-s922x.bin; then
+              echo "u-boot 下载成功！"
+              ls -lh files/u-boot/
+              break
+            elif wget -q $URL2 -O files/u-boot/u-boot-s922x.bin; then
+              echo "备用源下载成功！"
+              ls -lh files/u-boot/
+              break
+            fi
+            sleep 10
+          done || { echo "u-boot 下载失败，但继续构建"; }
 
       - name: 更新 & 安装 feeds
         run: |
-          cd openwrt
+          cd $GITHUB_WORKSPACE/openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
@@ -66,16 +92,16 @@ jobs:
 
       - name: 应用配置
         run: |
-          cd openwrt
+          cd $GITHUB_WORKSPACE/openwrt
           make defconfig
 
-      - name: 开始编译
+      - name: 开始编译（单核 + 日志）
         run: |
-          cd openwrt
+          cd $GITHUB_WORKSPACE/openwrt
           export CCACHE_DIR=~/.ccache
           make -j1 V=s 2>&1 | tee build.log || { tail -50 build.log; exit 1; }
 
-      - name: 上传固件（S922X 路径修复）
+      - name: 上传固件（S922X 路径）
         if: success()
         uses: actions/upload-artifact@v4
         with:
