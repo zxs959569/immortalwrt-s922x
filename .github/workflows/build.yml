@@ -1,4 +1,4 @@
-name: ImmortalWrt 24.10 S922X 构建（目标加载修复版）
+name: ImmortalWrt 24.10 S922X 构建
 
 on:
   workflow_dispatch:
@@ -38,7 +38,7 @@ jobs:
           git clone --depth 1 -b openwrt-24.10 \
             https://github.com/immortalwrt/immortalwrt.git openwrt
           cd openwrt
-          cp ../config/.config .config  # cp 而非 ln，避免符号链接问题
+          cp ../config/.config .config
           ls -la .config
           echo "目标配置加载: $(head -5 .config | grep -i target)"
 
@@ -65,10 +65,10 @@ jobs:
           key: cache-${{ runner.os }}-${{ hashFiles('openwrt/feeds.conf.default') }}
           restore-keys: cache-${{ runner.os }}-
 
-      - name: 应用配置（oldconfig 加载自定义）
+      - name: 应用配置
         run: |
           cd openwrt
-          make oldconfig  # 加载 .config 而非覆盖
+          make oldconfig
 
       - name: 开始编译
         run: |
@@ -76,16 +76,16 @@ jobs:
           export CCACHE_DIR=~/.ccache
           make -j1 V=s 2>&1 | tee build.log || { tail -50 build.log; exit 1; }
 
-      - name: 上传固件（动态路径）
+      - name: 上传固件
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ImmortalWrt-S922X-Firmware
           path: |
-            openwrt/bin/targets/meson/g12b/s922x/*.*  # 所有固件
+            openwrt/bin/targets/meson/g12b/s922x/*.*
           retention-days: 7
 
-      - name: 上传日志（始终）
+      - name: 上传日志
         if: always()
         uses: actions/upload-artifact@v4
         with:
