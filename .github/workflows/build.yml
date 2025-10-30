@@ -1,55 +1,94 @@
-CONFIG_TARGET_meson=y
-CONFIG_TARGET_meson_g12b=y
-CONFIG_TARGET_meson_g12b_DEVICE_s922x=y  # S922X 官方目标
+name: ImmortalWrt 24.10 S922X 构建（目标加载修复版）
 
-CONFIG_KERNEL_BUILD=y
-CONFIG_KERNEL_VERSION="6.6"
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
 
-CONFIG_PACKAGE_luci=y
-CONFIG_PACKAGE_luci-base=y
-CONFIG_PACKAGE_luci-theme-bootstrap=y
-CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
-CONFIG_PACKAGE_luci-mod-admin-full=y
-CONFIG_PACKAGE_luci-mod-network=y
-CONFIG_PACKAGE_luci-mod-status=y
-CONFIG_PACKAGE_luci-mod-system=y
-CONFIG_PACKAGE_luci-app-firewall=y
-CONFIG_PACKAGE_luci-app-opkg=y
-CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
-CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y
+permissions:
+  contents: write
 
-CONFIG_PACKAGE_dnsmasq-full=y
-CONFIG_PACKAGE_luci-app-upnp=y
-CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y
-CONFIG_PACKAGE_luci-app-sqm=y
-CONFIG_PACKAGE_luci-i18n-sqm-zh-cn=y
-CONFIG_PACKAGE_luci-app-https-dns-proxy=y
-CONFIG_PACKAGE_luci-i18n-https-dns-proxy-zh-cn=y
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
 
-CONFIG_PACKAGE_kmod-fs-ext4=y
-CONFIG_PACKAGE_kmod-fs-ntfs=y
-CONFIG_PACKAGE_kmod-fs-vfat=y
-CONFIG_PACKAGE_kmod-fs-f2fs=y
-CONFIG_PACKAGE_block-mount=y
-CONFIG_PACKAGE_e2fsprogs=y
-CONFIG_PACKAGE_f2fs-tools=y
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
 
-CONFIG_PACKAGE_luci-ssl=y
-CONFIG_LUCI_SSL="mbedtls"
-CONFIG_PACKAGE_libustream-mbedtls=y
-CONFIG_PACKAGE_libustream-openssl=n
+      - name: 空间检查 & 清理
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h
 
-CONFIG_PACKAGE_chrony=y
-CONFIG_PACKAGE_luci-app-ntpc=y
-CONFIG_PACKAGE_luci-i18n-ntpc-zh-cn=y
+      - name: 安装依赖
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib gettext git libncurses5-dev libssl-dev \
+            python3-setuptools rsync subversion \
+            swig unzip zlib1g-dev ccache quilt time
+          python3 -c "import setuptools; print('setuptools version:', setuptools.__version__)"
 
-CONFIG_PACKAGE_luci-app-attendedsysupgrade=y
-CONFIG_PACKAGE_luci-app-ttyd=y
-CONFIG_PACKAGE_luci-i18n-attendedsysupgrade-zh-cn=y
-CONFIG_PACKAGE_luci-i18n-ttyd-zh-cn=y
+      - name: 克隆 ImmortalWrt
+        run: |
+          cd $GITHUB_WORKSPACE
+          git clone --depth 1 -b openwrt-24.10 \
+            https://github.com/immortalwrt/immortalwrt.git openwrt
+          cd openwrt
+          cp ../config/.config .config  # cp 而非 ln，避免符号链接问题
+          ls -la .config
+          echo "目标配置加载: $(head -5 .config | grep -i target)"
 
-CONFIG_TARGET_ROOTFS_PARTSIZE=512
-CONFIG_TARGET_IMAGES-GENERATE_EXT4=y
-CONFIG_TARGET_IMAGES-GENERATE_SYSUPGRADE=y
-CONFIG_TARGET_IMAGES-GENERATE_TARGZ=y
-CONFIG_VERSION_NUMBER="24.10.0"
+      - name: 下载 u-boot
+        run: |
+          cd openwrt
+          mkdir -p files/u-boot
+          wget -q https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/target/linux/meson/files/u-boot-s922x.bin \
+            -O files/u-boot/u-boot-s922x.bin
+          ls -lh files/u-boot/
+
+      - name: 更新 & 安装 feeds
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 缓存 dl & ccache
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/dl
+            ~/.ccache
+          key: cache-${{ runner.os }}-${{ hashFiles('openwrt/feeds.conf.default') }}
+          restore-keys: cache-${{ runner.os }}-
+
+      - name: 应用配置（oldconfig 加载自定义）
+        run: |
+          cd openwrt
+          make oldconfig  # 加载 .config 而非覆盖
+
+      - name: 开始编译
+        run: |
+          cd openwrt
+          export CCACHE_DIR=~/.ccache
+          make -j1 V=s 2>&1 | tee build.log || { tail -50 build.log; exit 1; }
+
+      - name: 上传固件（动态路径）
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ImmortalWrt-S922X-Firmware
+          path: |
+            openwrt/bin/targets/meson/g12b/s922x/*.*  # 所有固件
+          retention-days: 7
+
+      - name: 上传日志（始终）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: openwrt/build.log
+          if-no-files-found: warn
