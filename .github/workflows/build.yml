@@ -42,12 +42,12 @@ jobs:
       - name: 强制加载 S922X 配置
         run: |
           cd openwrt
-          cp ../config/.config .config
+          cp ../config/.config .config 2>/dev/null || true
           echo "=== 原始配置 ==="
           grep "TARGET.*meson" .config || echo "无 meson 配置"
 
-          # 强制写入 S922X 目标
-          cat >> .config << 'EOF'
+          # 强制写入 S922X 目标（防止 defconfig 覆盖）
+          cat >> .config <<'EOF'
 
 CONFIG_TARGET_meson=y
 CONFIG_TARGET_meson_g12b=y
@@ -59,7 +59,7 @@ EOF
 
           make defconfig
           echo "=== 最终目标 ==="
-          grep "TARGET.*meson" .config
+          grep "TARGET.*meson" .config || { echo "S922X 配置失败！"; exit 1; }
 
       - name: 下载 u-boot
         run: |
@@ -110,3 +110,4 @@ EOF
         with:
           name: build-log
           path: openwrt/build.log
+          if-no-files-found: warn
